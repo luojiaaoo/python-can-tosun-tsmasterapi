@@ -13,9 +13,9 @@ TOSUN同星软件接口TSMasterApi的python-can适配驱动，已测试TC1016P
 
 ```python
 import can
-can_filters = [dict(is_extended=1, filter_start=UDS_PhysicalRequestID, filter_end=UDS_PhysicalRequestID),]
+can_filters = [0x111, 0x222]
 bus = can.interface.Bus(bustype='tosun', channel=0, fd=True, bitrate=500000, data_bitrate=2000000,
-                            receive_own_messages=True, device_name='TC1016', device_type=3, hw_index=0)
+                            receive_own_messages=True, can_filters=can_filters, m120=True, device_name='TC1016', device_type=3, hw_index=0)
 msg = can.Message(arbitration_id=0x111,data=[0x02, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00],is_extended_id=False, )
 bus.send(msg)
 while (rec:=bus.recv(timeout=0.1)):
