@@ -23,8 +23,6 @@ while (rec:=bus.recv(timeout=0.1)):
 bus.shutdown()
 ```
 
-3. 当前的问题
-
 ## 待解决
 
 1. canfd报文设置brs标志位后，发送的报文未开启可变波特率，暂未查出原因
