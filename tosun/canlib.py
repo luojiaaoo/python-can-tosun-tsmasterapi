@@ -36,29 +36,29 @@ DLC2BYTE_LEN = {
 BYTE_LEN2DLC = {j: i for i, j in DLC2BYTE_LEN.items()}
 APP_NAME = "ForTSMasterApi"
 _PRODUCTS = {
-    "TC1001": {"fd": False, "channel_count": 1, "sub_type": 3, "device_type": 3},
-    "TC1011": {"fd": True, "channel_count": 1, "sub_type": 5, "device_type": 3},
-    "TC1014": {"fd": True, "channel_count": 4, "sub_type": 8, "device_type": 3},
-    "TC1026": {"fd": True, "channel_count": 1, "sub_type": 10, "device_type": 3},
-    "TC1016": {"fd": True, "channel_count": 4, "sub_type": 11, "device_type": 3},
-    "TC1012": {"fd": True, "channel_count": 1, "sub_type": 12, "device_type": 3},
-    "TC1013": {"fd": True, "channel_count": 2, "sub_type": 13, "device_type": 3},
-    "Tlog1002": {"fd": True, "channel_count": 2, "sub_type": 14, "device_type": 3},
-    "TC1034": {"fd": True, "channel_count": 2, "sub_type": 15, "device_type": 3},
-    "TC1018": {"fd": True, "channel_count": 12, "sub_type": 16, "device_type": 3},
-    "MP1013": {"fd": True, "channel_count": 2, "sub_type": 19, "device_type": 3},  # pcie
-    "TC1113": {"fd": True, "channel_count": 2, "sub_type": 20, "device_type": 10},  # wifi
-    "TC1114": {"fd": True, "channel_count": 4, "sub_type": 21, "device_type": 10},  # wifi
-    "TP1013": {"fd": True, "channel_count": 2, "sub_type": 22, "device_type": 3},  # pcie
-    "TC1017": {"fd": True, "channel_count": 8, "sub_type": 23, "device_type": 3},
-    "TP1018": {"fd": True, "channel_count": 12, "sub_type": 24, "device_type": 3},  # pcie
-    "Tlog1004": {"fd": True, "channel_count": 4, "sub_type": 26, "device_type": 3},
-    "TP1034": {"fd": True, "channel_count": 2, "sub_type": 29, "device_type": 3},  # pcie
-    "TP1026": {"fd": True, "channel_count": 1, "sub_type": 31, "device_type": 3},  # pcie
-    "TC1038Pro": {"fd": True, "channel_count": 12, "sub_type": 45, "device_type": 3},
-    "TC1055Pro": {"fd": True, "channel_count": 4, "sub_type": 49, "device_type": 3},
+    "TC1001": {"fd": False, "channel_count": 1, "sub_type": 3},
+    "TC1011": {"fd": True, "channel_count": 1, "sub_type": 5},
+    "TC1014": {"fd": True, "channel_count": 4, "sub_type": 8},
+    "TC1026": {"fd": True, "channel_count": 1, "sub_type": 10},
+    "TC1016": {"fd": True, "channel_count": 4, "sub_type": 11},
+    "TC1012": {"fd": True, "channel_count": 1, "sub_type": 12},
+    "TC1013": {"fd": True, "channel_count": 2, "sub_type": 13},
+    "Tlog1002": {"fd": True, "channel_count": 2, "sub_type": 14},
+    "TC1034": {"fd": True, "channel_count": 2, "sub_type": 15},
+    "TC1018": {"fd": True, "channel_count": 12, "sub_type": 16},
+    "MP1013": {"fd": True, "channel_count": 2, "sub_type": 19},  # pcie
+    "TC1113": {"fd": True, "channel_count": 2, "sub_type": 20},  # wifi
+    "TC1114": {"fd": True, "channel_count": 4, "sub_type": 21},  # wifi
+    "TP1013": {"fd": True, "channel_count": 2, "sub_type": 22},  # pcie
+    "TC1017": {"fd": True, "channel_count": 8, "sub_type": 23},
+    "TP1018": {"fd": True, "channel_count": 12, "sub_type": 24},  # pcie
+    "Tlog1004": {"fd": True, "channel_count": 4, "sub_type": 26},
+    "TP1034": {"fd": True, "channel_count": 2, "sub_type": 29},  # pcie
+    "TP1026": {"fd": True, "channel_count": 1, "sub_type": 31},  # pcie
+    "TC1038Pro": {"fd": True, "channel_count": 12, "sub_type": 45},
+    "TC1055Pro": {"fd": True, "channel_count": 4, "sub_type": 49}, # TS_USB_IF_DEVICE
 }
-PRODUCTS = defaultdict(lambda: {"fd": True, "channel_count": 1, "sub_type": 0, "device_type": 3}, _PRODUCTS)
+PRODUCTS = defaultdict(lambda: {"fd": True, "channel_count": 1, "sub_type": 0}, _PRODUCTS)
 
 
 class TSMasterApiBus(BusABC):
@@ -155,8 +155,19 @@ class TSMasterApiBus(BusABC):
         PTLIBHWInfo = TSMasterApi.TLIBHWInfo()
         for i in range(ACount.value):
             TSMasterApi.tsapp_get_hw_info_by_index(i, PTLIBHWInfo)
+            device_type = PTLIBHWInfo.FDeviceType
             vendor_name = PTLIBHWInfo.FVendorName.decode("utf8")
-            if not ("TOSUN" in vendor_name.upper() and PTLIBHWInfo.FDeviceType in (3, 10)):  # 只允许同星USB/wifi设备
+                        if not all(
+                    [
+                        any(
+                            [
+                                "TOSUN" in vendor_name.upper(),
+                                vendor_name == 'TC1055Pro',  # ugly fix, but works, because of the stupid TC1055Pro
+                            ]
+                        ),
+                        device_type in (3, 10, 14),  # 只允许同星USB/wifi设备
+                    ]
+            ):
                 continue
             device_name = PTLIBHWInfo.FDeviceName.decode("utf8")
             for _device_name in PRODUCTS.keys():
@@ -173,6 +184,7 @@ class TSMasterApiBus(BusABC):
                         device_name=device_name,
                         name=f"{vendor_name} {device_name} {device_index + 1} {'CAN FD' if device_properties['fd'] else 'CAN'} 通道{i + 1} ({device_sn})",
                         **device_properties,
+                        device_type=device_type,
                         channel=i,
                         sn=device_sn,
                         index=device_index,
