@@ -10,7 +10,7 @@ import can
 from can import BusABC
 from . import TSMasterApi
 
-log = logging.getLogger("can.self.TSMasterApi")
+log = logging.getLogger("can.TSMasterApi")
 log.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
 log.addHandler(handler)
@@ -34,7 +34,7 @@ DLC2BYTE_LEN = {
     15: 64,
 }
 BYTE_LEN2DLC = {j: i for i, j in DLC2BYTE_LEN.items()}
-APP_NAME = "Forself.TSMasterApi"
+APP_NAME = "ForTSMasterApi"
 _PRODUCTS = {
     "TC1001": {"fd": False, "channel_count": 1, "sub_type": 3, "device_type": 3},
     "TC1011": {"fd": True, "channel_count": 1, "sub_type": 5, "device_type": 3},
