@@ -196,7 +196,7 @@ def start_channel(
     is_stop: Value,
     kwargs,
 ):
-    TSMasterApi = importlib.import_module("common.tosun.TSMasterApi")
+    from . import TSMasterApi
     send_async_count = 0
     app_name_plus = f"{APP_NAME}_{channel}"
     time_drift = None
