@@ -353,9 +353,9 @@ def start_channel(
         if msg.is_fd:
             FDmsg = TSMasterApi.TLIBCANFD()
             if msg.bitrate_switch:
-                FDmsg.FProperties = FDmsg.FFDProperties | 0x02
+                FDmsg.FFDProperties = FDmsg.FFDProperties | 0x02
             else:
-                FDmsg.FProperties = FDmsg.FFDProperties & (~0x02)
+                FDmsg.FFDProperties = FDmsg.FFDProperties & (~0x02)
             if msg.is_extended_id:
                 FDmsg.FProperties = FDmsg.FProperties | 0x04
             else:
