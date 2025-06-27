@@ -55,6 +55,8 @@ _PRODUCTS = {
     "Tlog1004": {"fd": True, "channel_count": 4, "sub_type": 26, "device_type": 3},
     "TP1034": {"fd": True, "channel_count": 2, "sub_type": 29, "device_type": 3},  # pcie
     "TP1026": {"fd": True, "channel_count": 1, "sub_type": 31, "device_type": 3},  # pcie
+    "TC1038Pro": {"fd": True, "channel_count": 12, "sub_type": 45, "device_type": 3},
+    "TC1055Pro": {"fd": True, "channel_count": 4, "sub_type": 49, "device_type": 3},
 }
 PRODUCTS = defaultdict(lambda: {"fd": True, "channel_count": 1, "sub_type": 0, "device_type": 3}, _PRODUCTS)
 
@@ -154,11 +156,11 @@ class TSMasterApiBus(BusABC):
         for i in range(ACount.value):
             TSMasterApi.tsapp_get_hw_info_by_index(i, PTLIBHWInfo)
             vendor_name = PTLIBHWInfo.FVendorName.decode("utf8")
-            if not (vendor_name == "TOSUN" and PTLIBHWInfo.FDeviceType in (3, 10)):  # 只允许同星USB/wifi设备
+            if not ("TOSUN" in vendor_name.upper() and PTLIBHWInfo.FDeviceType in (3, 10)):  # 只允许同星USB/wifi设备
                 continue
             device_name = PTLIBHWInfo.FDeviceName.decode("utf8")
             for _device_name in PRODUCTS.keys():
-                if device_name.upper() in _device_name.upper():
+                if device_name.replace(" ", "").upper() in _device_name.upper():
                     device_name = _device_name
                     break
             device_index = PTLIBHWInfo.FDeviceIndex  # 多个同型号设备索引
