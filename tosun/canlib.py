@@ -318,7 +318,7 @@ def start_channel(
         ):
             raise ValueError("CAN FD参数设置失败")
     else:
-        if 0 != TSMasterApi.tsapp_configure_baudrate_can(0, bitrate, False, m120):
+        if 0 != TSMasterApi.tsapp_configure_baudrate_can(0, bitrate//1000, False, m120):
             raise ValueError("CAN参数设置失败")
     TSMasterApi.tsfifo_enable_receive_error_frames()
     if 0 != TSMasterApi.tsapp_connect():
