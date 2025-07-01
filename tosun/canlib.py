@@ -326,11 +326,12 @@ def start_channel(
 
     obj1 = TSMasterApi.c_int32(0)
     obj2 = TSMasterApi.c_int32(0)
-    if 0 != TSMasterApi.tsapp_register_event_can(obj1, OnCANevent):
-        raise ValueError("注册CAN事件失败")
     if fd:
         if 0 != TSMasterApi.tsapp_register_event_canfd(obj2, OnCANFDevent):
             raise ValueError("注册CAN FD事件失败")
+    else:
+        if 0 != TSMasterApi.tsapp_register_event_can(obj1, OnCANevent):
+        raise ValueError("注册CAN事件失败")
 
     def send_auto():
         while not is_stop.value:
