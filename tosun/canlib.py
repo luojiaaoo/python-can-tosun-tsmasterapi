@@ -37,12 +37,66 @@ BYTE_LEN2DLC = {j: i for i, j in DLC2BYTE_LEN.items()}
 APP_NAME = "ForTSMasterApi"
 
 open_lib = False
+open_lib_lock = Lock()
+
+
+def _build_canfd_payload(msg: can.Message):
+    payload_length = msg.dlc
+    if payload_length < 0:
+        raise ValueError("CAN FD消息长度不能为负数")
+    if payload_length > 64:
+        raise ValueError("CAN FD消息长度不能超过64字节")
+
+    payload = bytearray(msg.data[:payload_length])
+    fd_dlc = can.util.len2dlc(payload_length)
+    frame_length = can.util.dlc2len(fd_dlc)
+    if len(payload) < frame_length:
+        payload.extend(b"\x00" * (frame_length - len(payload)))
+    return payload, fd_dlc
+
+
+def _format_ts_error(code: int) -> str:
+    try:
+        description = TSMasterApi.tsapp_get_error_description(code)
+    except Exception:
+        description = "未知错误"
+
+    if isinstance(description, bytes):
+        description = description.decode("utf8", errors="ignore")
+
+    return f"错误码={code}, 描述={description}"
+
+
+def _ensure_tsmaster_initialized():
+    global open_lib
+
+    if open_lib:
+        return
+
+    with open_lib_lock:
+        if open_lib:
+            return
+
+        ret = TSMasterApi.initialize_lib_tsmaster(APP_NAME.encode("utf8"))
+        if ret != 0:
+            raise ValueError(f"初始化TSMaster失败，{_format_ts_error(ret)}")
+
+        open_lib = True
+
+
+def _activate_current_application():
+    _ensure_tsmaster_initialized()
+    ret = TSMasterApi.tsapp_set_current_application(APP_NAME.encode("utf8"))
+    if ret != 0:
+        raise ValueError(f"设置TSMaster应用失败，{_format_ts_error(ret)}")
 
 
 def clean_tosun_lib():
+    global open_lib
     if open_lib:
         log.debug('中止TSMaster DLL调用')
         TSMasterApi.finalize_lib_tsmaster()
+        open_lib = False
 
 
 atexit.register(clean_tosun_lib)
@@ -104,12 +158,19 @@ class TSMasterApiBus(BusABC):
         self.fifo_mode = fifo_mode
         self.id_filters = None
         self.receive_own_messages = receive_own_messages
-        if TSMasterApi.tsapp_set_can_channel_count(1) != 0 or TSMasterApi.tsapp_set_lin_channel_count(0) != 0:
-            TSMasterApi.tsapp_disconnect()
-            time.sleep(5)
+        _activate_current_application()
+        can_ret = TSMasterApi.tsapp_set_can_channel_count(1)
+        lin_ret = TSMasterApi.tsapp_set_lin_channel_count(0)
+        if can_ret != 0 or lin_ret != 0:
             TSMasterApi.tsapp_del_mapping_verbose(APP_NAME.encode("utf8"), 0, 0)
-            if TSMasterApi.tsapp_set_can_channel_count(1) != 0 or TSMasterApi.tsapp_set_lin_channel_count(0) != 0:
-                raise ValueError("设置CAN通道数失败")
+            TSMasterApi.tsapp_set_can_channel_count(0)
+            TSMasterApi.tsapp_set_lin_channel_count(0)
+            can_ret = TSMasterApi.tsapp_set_can_channel_count(1)
+            lin_ret = TSMasterApi.tsapp_set_lin_channel_count(0)
+            if can_ret != 0 or lin_ret != 0:
+                can_error = "OK" if can_ret == 0 else _format_ts_error(can_ret)
+                lin_error = "OK" if lin_ret == 0 else _format_ts_error(lin_ret)
+                raise ValueError(f"设置CAN通道数失败: can={can_error}; lin={lin_error}")
         # 获取参数
         channel_count: int = self.PRODUCTS[device_name]["channel_count"]
         sub_type: int = self.PRODUCTS[device_name]["sub_type"]
@@ -228,6 +289,7 @@ class TSMasterApiBus(BusABC):
                 else:
                     log.debug("注册CAN FD事件成功")
         self.lock_shutdown = Lock()
+        self.channel_info = f"TSMaster: {device_name} ch:{channel} sn:{hw_sn}"
         super().__init__(
             channel=channel,
             can_filters=can_filters,
@@ -255,11 +317,10 @@ class TSMasterApiBus(BusABC):
             else:
                 FDmsg.FProperties = FDmsg.FProperties & (~0x04)
             FDmsg.FIdentifier = msg.arbitration_id
-            FData0 = bytearray(msg.data)
-            len_FData0 = len(FData0)
-            for i in range(len_FData0):
-                FDmsg.FData[i] = FData0[i]
-            FDmsg.FDLC = BYTE_LEN2DLC[len_FData0]
+            FData0, fd_dlc = _build_canfd_payload(msg)
+            for i, data_byte in enumerate(FData0):
+                FDmsg.FData[i] = data_byte
+            FDmsg.FDLC = fd_dlc
             FDmsg.FIdxChn = 0
             if msg.is_remote_frame:
                 FDmsg.FProperties = FDmsg.FProperties | 0x02
@@ -285,6 +346,13 @@ class TSMasterApiBus(BusABC):
                 msg_tosun.FProperties = msg_tosun.FProperties & (~0x02)
             send_can_func(msg_tosun)
 
+    def _queue_message(self, msg: can.Message):
+        if not self.receive_own_messages and not msg.is_rx:
+            return
+
+        if self._matches_filters(msg):
+            self.queue_recv.put(msg)
+
     def receive_batch_frame(self):
         size = TSMasterApi.c_int32(1000)
         if not self.fd:
@@ -308,13 +376,7 @@ class TSMasterApiBus(BusABC):
                     is_rx=(ACAN.contents.FProperties & 1) == 0,
                     is_error_frame=ACAN.contents.FProperties == 0x80,
                 )
-                if not self.receive_own_messages and not msg.is_rx:  # 接受发送的消息
-                    return
-                if self.id_filters:
-                    if msg.arbitration_id in self.id_filters:
-                        self.queue_recv.put(msg)
-                else:
-                    self.queue_recv.put(msg)
+                self._queue_message(msg)
         else:
             r = TSMasterApi.tsfifo_receive_canfd_msgs(listcanfdmsg, size, 0, 1)
             if r != 0:
@@ -337,35 +399,29 @@ class TSMasterApiBus(BusABC):
                     is_rx=(ACANFD.FProperties & 1) == 0,
                     is_error_frame=ACANFD.FProperties == 0x80,
                 )
-                if not self.receive_own_messages and not msg.is_rx:  # 接受发送的消息
-                    return
-                if self.id_filters:
-                    if msg.arbitration_id in self.id_filters:
-                        self.queue_recv.put(msg)
-                else:
-                    self.queue_recv.put(msg)
+                self._queue_message(msg)
 
     def _recv_internal(self, timeout=None):
         if self.fifo_mode:
             if self.queue_recv.qsize() > 0:
-                return self.queue_recv.get(), bool(self.id_filters)
-            start_time = time.process_time()
+                return self.queue_recv.get(), bool(self._filters)
+            start_time = time.perf_counter()
             while True:
                 with self.lock_shutdown:
                     if self._is_shutdown:
                         break
                     self.receive_batch_frame()
                 if self.queue_recv.qsize() > 0:
-                    return self.queue_recv.get(), bool(self.id_filters)
-                if time.process_time() - start_time > timeout:
+                    return self.queue_recv.get(), bool(self._filters)
+                if time.perf_counter() - start_time > timeout:
                     break
                 time.sleep(0.001)
-            return None, bool(self.id_filters)
+            return None, bool(self._filters)
         else:
             try:
-                return self.queue_recv.get(timeout=timeout), bool(self.id_filters)
+                return self.queue_recv.get(timeout=timeout), bool(self._filters)
             except Empty:
-                return None, bool(self.id_filters)
+                return None, bool(self._filters)
 
     def _apply_filters(self, filters):
         self.id_filters = filters
@@ -382,10 +438,8 @@ class TSMasterApiBus(BusABC):
     @classmethod
     def _detect_available_configs(cls):
         """获取同星USB硬件列表"""
-        global open_lib
         log.debug('初始化TSMaster DLL调用')
-        TSMasterApi.initialize_lib_tsmaster(APP_NAME.encode("utf8"))  # 初始化应用
-        open_lib = True
+        _activate_current_application()
         confs = []
         # 获取硬件列表
         ACount = TSMasterApi.c_int32(0)
